@@ -1,71 +1,69 @@
 # XiaobaoDesk
 
-Low-latency Windows-to-Android Remote Desktop & Wireless Secondary Display solution (up to 120 FPS H.265/H.264 hardware encoding, native Windows touch, ConPTY PowerShell, and dual-pane file transfer).
+低延迟 Windows 远程桌面与 **无线副屏** 工具（最高 120FPS 硬件编码、Windows 原生触控不抢占实体鼠标、双指中点滚动、主屏息屏防窥、内置终端与文件传输）。
 
-低延迟 Windows ↔ Android 远程桌面与**无线副屏**开源解决方案（支持 120FPS 硬件编码、原生触控、双指中点滚动、主屏防窥与双向剪贴板/终端/文件传输），**默认支持无服务端直连（零云端依赖）**。
-
----
-
-## 核心特性
-
-- **无服务端直连优先（Serverless First）**：默认无需部署云服务器，支持**同局域网 UDP 自动发现**、**公网 IPv6 / DDNS 直连**、**Tailscale / ZeroTier 虚拟组网直连**，以及本地离线一键配对。
-- **无线副屏 + 触控缩放**：基于 `MttVDD` 虚拟显示器扩展独立副屏，默认按手机物理分辨率 `1.20x` 缩放（支持 `1.0x / 1.15x / 1.20x / 1.25x`），连接后自动将应用窗口与前台焦点迁至副屏，断开自动还原。
-- **双模式操控且不抢占物理鼠标**：
-  - **直触手势模式**：透传 Windows 原生触控（触控时自动隐藏桌面光标，电脑端移动鼠标/触控板自动恢复显示）；双指滑动以两指中点为滚动起始点。
-  - **虚拟鼠标模式**：本地光标瞄准不移动主机物理光标，点击/拖拽前后自动保存并恢复主机指针位置。
-- **主屏息屏防窥**：副屏模式下开启主屏黑屏防窥时同步约束光标活动范围，防止输入法与指针逸出。
-- **低延迟多媒体与安全**：DXGI Desktop Duplication + MediaFoundation 硬件编码（Intel QuickSync / NVIDIA NVENC / AMD AMF），TLS 1.3 证书指纹锁定 + HMAC-SHA256 挑战认证 + 可选 TOTP 2FA。
-- **工具集成**：内置 ConPTY 实时 PowerShell 终端、双栏文件传输、双向剪贴板与顶部悬浮栏 4 秒自动收起。
+**默认全程使用裸 IP + TLS 1.3 证书指纹校验，无需任何域名，也不假设你在同一局域网。**
 
 ---
 
-## 目录结构
+## 一、安装包下载
 
-```text
-xiaobao-desk/
-├── android/          # Android 客户端 (Kotlin, MediaCodec 低延迟硬解, 触控/虚拟鼠标/键鼠手柄)
-├── win-host/         # Windows 被控端守护进程 (Go: TLS 1.3 P2P + UDP 局域网发现 + ConPTY + 文件服务)
-├── win-media/        # Windows 媒体核心 (C++: DXGI 采集, MF 硬件编码, WASAPI 音频, MttVDD 副屏, 原生触控)
-├── hub/              # [可选] 轻量级信令与 TLS 1.3 中继服务端 (Go 单二进制，内存 < 10MB)
-├── protocol/         # 多路复用二进制帧协议规范 (PROTOCOL.md)
-├── scripts/          # 安装虚拟显示器、防火墙与本地无服务端配对脚本
-├── drivers/vdd/      # MttVDD 虚拟显示器驱动包与自适应分辨率配置
-├── docs/             # 无服务端折中方案与组网指南 (SERVERLESS.md)
-└── e2e/              # 端到端集成测试
+前往 [GitHub Releases 最新版本](https://github.com/gamble-max/xiaobao-desk/releases/latest) 直接下载安装，无需自行编译：
+
+| 端侧 | 下载文件 / 命令 | 说明 |
+| :--- | :--- | :--- |
+| **Windows 电脑端** | `XiaobaoDesk-Setup.exe` | 双击自动弹窗授权安装，内置「被控端 + 内置服务端 + 无线副屏驱动 + 图形控制台」 |
+| **Android 手机端** | `XiaobaoDesk.apk` | 安装到手机，无论无服务器还是独立服务器模式，手机端操作完全一致 |
+| **Linux 独立服务端（可选）** | 一键 bash 命令（见下文） | 仅当你选择「独立服务器模式」时在云服务器上执行 |
+
+---
+
+## 二、部署方式选择（按需二选一）
+
+### 方式 A：无服务器模式（默认，电脑同时装被控端 + 内置服务端）
+
+适合不买云服务器的用户：电脑端自身同时运行 **被控端 + 内置服务端**，手机直连电脑的裸 IP（端口 `21116` / `21118`）。
+
+1. 在电脑上双击运行 **`XiaobaoDesk-Setup.exe`**，弹出 Windows 管理员授权确认后点击「是」，一键完成安装与驱动配置并打开控制台。
+2. 控制台默认处于 **「无服务器模式」**，会自动列出你电脑可用的裸 IP：
+   - **公网 IPv6**（如 `[240e:...]:21116`）：只要电脑和手机都有运营商 IPv6（家用宽带 + 手机 4G/5G 通常默认具备），**无需局域网即可外网直接流量连接**（需光猫/路由器未拦截入站 `21116/21118`）。
+   - **公网 IPv4 / 虚拟组网 IP / 局域网 IPv4**（如 `192.168.x.x:21116`）：支持端口映射公网 IP、Tailscale/ZeroTier 组网 IP 或同 Wi-Fi 连接。
+3. 点击控制台底部的 **「复制手机一键配对码」** 发给手机即可。
+
+> **为什么无服务器模式能跨网连？** 因为电脑端内置了完整的 `xb-hub` 服务端，不再依赖外部中转；只要手机能访问到你电脑的一个可达裸 IP，就能直接建立加密连接。
+
+---
+
+### 方式 B：独立服务器模式（适合两边都在复杂内网 / 无公网 IPv6 时）
+
+如果你家里宽带既没有公网 IPv6 也没有公网 IPv4 端口映射，只需在任意一台有裸公网 IP 的 Linux 服务器（Ubuntu / Debian / CentOS）上运行一行命令安装服务端：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gamble-max/xiaobao-desk/main/install-hub.sh | sudo bash
 ```
 
----
+1. 脚本会自动下载对应架构（`x86_64` / `arm64`）的 `xb-hub`、放行端口 `21116`、启动 `systemd` 服务，并在最后输出一行 **`xbhub://...`** 接入串。
+2. 复制这行 `xbhub://...` 接入串，打开电脑上的 **XiaobaoDesk 控制台**，切换到 **「独立服务器模式」** 并点击 **「粘贴 xbhub:// 接入串」** 即可自动完成切换（自动停掉电脑本地服务端，连向你的云服务器）。
+3. 点击控制台的 **「复制手机一键配对码」** 发给手机。
 
-## 快速开始（无服务端模式 · 3 分钟上手）
-
-1. **下载或编译发布产物**：
-   - 从 GitHub Releases 下载 `XiaobaoDesk-Windows-Host-x64-*.zip` 与 `XiaobaoDesk-*.apk`（或运行 `scripts\build-all.ps1` 本地编译）。
-2. **Windows 被控端初始化（管理员 PowerShell）**：
-   ```powershell
-   # 1) 安装虚拟显示器驱动（用于无线副屏）
-   .\scripts\install-vdd.ps1
-
-   # 2) 放行 TCP/UDP 21118 防火墙并生成本地密钥与证书
-   .\scripts\setup-win-host.ps1 -InitConfig -RegisterTask
-
-   # 3) 启动托盘守护
-   Start-Process .\dist\xb-tray.exe
-   ```
-3. **手机端配对（二选一，均无需云服务器）**：
-   - **方式 A（推荐）**：电脑端运行 `.\scripts\start-local-pairing.ps1`，手机浏览器打开终端输出的局域网链接，即可下载 APK 并一键离线导入配置。
-   - **方式 B**：手机安装 APK 后点击 **「局域网发现」** 自动扫描同一 Wi-Fi / Tailscale 下的电脑，填入 `%USERPROFILE%\.xiaobao-desk\host.json` 中的 `host_password` 即可连接。
-
-> 更多跨外网无服务端方案（原生 IPv6 + DDNS、Tailscale、ZeroTier、免费隧道对比）请查看：[无服务端折中方案指南 (docs/SERVERLESS.md)](docs/SERVERLESS.md)。
+> 如需卸载 Linux 服务端：
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/gamble-max/xiaobao-desk/main/uninstall-hub.sh | sudo bash
+> ```
 
 ---
 
-## 可选：自建 `xb-hub` 中继服务端
+## 三、手机端连接（两种部署方式操作完全一致）
 
-如果你处于双层 NAT 且无法使用 IPv6 或虚拟组网，可在任意 Linux VPS 上部署 `hub/`（单二进制，支持 `deploy/deploy-hub-example.sh`）：
-- 将 `hub` 生成的 `hub_addr`、`hub_cert_sha256` 填入 Windows `host.json` 及手机端配置即可启用「P2P 优先 + TLS 1.3 中继兜底」。
+1. 手机安装 **`XiaobaoDesk.apk`**。
+2. 复制电脑控制台生成的 **`xiaobaodesk://import?data=...` 配对码**，打开手机 App 点击右上角 **「粘贴配对码」**（也可点击「+ 新增设备」手动填写 `裸IP:21116`、证书指纹与密码）。
+3. 选择 **「镜像模式」** 或 **「无线副屏」**，点击 **「连接并进入桌面」** 即可。
 
 ---
 
-## License
+## 四、进阶可选：如果你有域名，可以怎么方便操作？
 
-[MIT](LICENSE)
+XiaobaoDesk 默认完全基于 **裸 IP + 证书指纹锁定**，不依赖域名。但如果你手头正好有域名，可以带来以下便利：
+
+1. **无服务器模式配合 DDNS**：家用宽带的公网 IPv6 / IPv4 在重启光猫后可能变化。在电脑上用 `ddns-go` 等工具把域名（如 `pc.example.com`）动态解析到家里电脑 IP 后，电脑控制台的「对外连接地址」下拉框直接手动改填 `pc.example.com:21116`，手机端无需每次重新改 IP。
+2. **独立服务器模式换机器免重配**：若将来更换云服务器，只需在安装新服务端前指定域名环境变量（或解析新 IP 到同一域名），客户端沿用原域名即可。
