@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/drawerLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- Main Streaming Canvas -->
+    <FrameLayout
+        android:id="@+id/streamRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <SurfaceView
+            android:id="@+id/streamSurfaceView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
+
+        <com.xiaobao.desk.ui.VirtualCursorView
+            android:id="@+id/virtualCursorView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone" />
+
+        <!-- Hidden EditText for full soft-keyboard / Chinese IME input -->
+        <EditText
+            android:id="@+id/etHiddenImeInput"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:alpha="0.01"
+            android:background="@null"
+            android:imeOptions="flagNoExtractUi|actionDone"
+            android:inputType="text|textNoSuggestions"
+            android:textColor="@android:color/transparent" />
+
+        <!-- Customizable Floating Key-Mapping & Virtual Joystick Overlay -->
+        <com.xiaobao.desk.ui.OverlayEditorView
+            android:id="@+id/overlayEditorView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <!-- Top Floating Mini Pill -->
+        <LinearLayout
+            android:id="@+id/floatingControlPill"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_floating_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp">
+
+            <TextView
+                android:id="@+id/tvStreamStats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:fontFamily="monospace"
+                android:text="120 FPS"
+                android:textColor="@color/xb_success"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnToggleInputMode"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/mode_touch"
+                android:textColor="@color/xb_primary"
+                android:textSize="11sp" />
+
+            <ImageButton
+                android:id="@+id/btnToggleKeyboard"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/action_keyboard"
+                android:src="@drawable/ic_keyboard" />
+
+            <ImageButton
+                android:id="@+id/btnToggleOverlay"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/action_overlay_editor"
+                android:src="@drawable/ic_gamepad" />
+
+            <ImageButton
+                android:id="@+id/btnOpenQuickDrawer"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/action_quick_drawer"
+                android:src="@drawable/ic_tune" />
+
+            <Button
+                android:id="@+id/btnCollapsePill"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="收起"
+                android:textColor="@color/xb_text_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Compact Semi-Transparent Re-Expand Button -->
+        <Button
+            android:id="@+id/btnMiniExpandPill"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="44dp"
+            android:layout_height="26dp"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="6dp"
+            android:alpha="0.58"
+            android:background="@drawable/bg_floating_pill"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            android:text="•••"
+            android:textColor="@color/xb_text_primary"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <!-- Overlay Editor Toolbar (shown when editing overlay) -->
+        <LinearLayout
+            android:id="@+id/overlayEditorToolbar"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="58dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_floating_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnAddOverlayKey"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="@string/editor_add_key"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnAddOverlayStick"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="@string/editor_add_stick"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnSaveOverlayPreset"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="@string/editor_save_preset"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnFinishOverlayEdit"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="@string/editor_done"
+                android:textColor="@color/xb_success"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- UU-Style Floating Virtual Mouse Action Bar -->
+        <LinearLayout
+            android:id="@+id/llVirtualMouseBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/bg_floating_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="4dp"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnVMouseLeft"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="10dp"
+                android:text="左键"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnVMouseWheelUp"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="滚轮↑"
+                android:textColor="@color/xb_primary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnVMouseWheelDown"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="滚轮↓"
+                android:textColor="@color/xb_primary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnVMouseRight"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="10dp"
+                android:text="右键"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Virtual PC Keyboard Bar -->
+        <include
+            android:id="@+id/virtualKeyboardInclude"
+            layout="@layout/view_virtual_keyboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- Right-side Quick Control Drawer -->
+    <include
+        android:id="@+id/quickControlsDrawer"
+        layout="@layout/drawer_quick_controls"
+        android:layout_width="290dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end" />
+
+</androidx.drawerlayout.widget.DrawerLayout>

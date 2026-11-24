@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#E60B0F17"
+    android:orientation="vertical"
+    android:padding="6dp">
+
+    <!-- Row 1: Esc, Tab, Ctrl, Alt, Win, Fn, Del, Backspace -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/rowSpecialKeys"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingVertical="2dp">
+
+            <Button
+                android:id="@+id/keyEsc"
+                android:layout_width="48dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Esc"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyTab"
+                android:layout_width="48dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Tab"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyCtrl"
+                android:layout_width="50dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Ctrl"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyAlt"
+                android:layout_width="48dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Alt"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyWin"
+                android:layout_width="48dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Win"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyFn"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Fn"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyDel"
+                android:layout_width="46dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Del"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyBackspace"
+                android:layout_width="52dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="⌫"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/keyEnter"
+                android:layout_width="54dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="Enter"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/keyLeft"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="←"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/keyUp"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="↑"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/keyDown"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="↓"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/keyRight"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="→"
+                android:textColor="@color/xb_text_primary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/keyShowIme"
+                android:layout_width="54dp"
+                android:layout_height="36dp"
+                android:background="@drawable/bg_keycap"
+                android:padding="0dp"
+                android:text="ABC"
+                android:textAllCaps="false"
+                android:textColor="@color/xb_primary"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Row 2: F1-F12 (toggled by Fn button) -->
+    <HorizontalScrollView
+        android:id="@+id/rowFnContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/rowFnKeys"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+</LinearLayout>

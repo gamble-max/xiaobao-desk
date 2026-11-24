@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XiaobaoDesk</string>
+
+    <!-- Navigation -->
+    <string name="nav_connect">Connect</string>
+    <string name="nav_terminal">PowerShell</string>
+    <string name="nav_files">Files</string>
+
+    <!-- Connection Screen -->
+    <string name="title_connection">Connection &amp; Security</string>
+    <string name="label_saved_profiles">Saved Profiles</string>
+    <string name="btn_save_profile">Save</string>
+    <string name="btn_delete_profile">Delete</string>
+    <string name="hint_profile_name">设备名称（如 我的电脑）</string>
+    <string name="hint_direct_address">直连地址 IP / IPv6 / DDNS / Tailscale（无服务端必填）</string>
+    <string name="hint_hub_address">自建 Hub 地址（可选，无服务端留空）</string>
+    <string name="hint_host_id">目标 Host ID（可选，仅 Hub 模式需要）</string>
+    <string name="hint_cert_fingerprint">证书 SHA-256 指纹</string>
+    <string name="hint_host_password">连接密码 (host_password)</string>
+    <string name="hint_totp_code">TOTP 2FA Code (6 digits)</string>
+
+    <string name="label_stream_settings">Display &amp; Stream</string>
+    <string name="label_superscreen">Super-Screen Auto-Resolution</string>
+    <string name="desc_superscreen">Match host display to phone native pixel resolution &amp; Hz</string>
+    <string name="label_fps">Target FPS</string>
+    <string name="label_codec">Video Codec</string>
+    <string name="label_bitrate">Bitrate</string>
+    <string name="btn_connect">Connect &amp; Stream</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected</string>
+
+    <!-- Streaming Workspace -->
+    <string name="mode_touch">10-Pt Touch</string>
+    <string name="mode_trackpad">Trackpad</string>
+    <string name="action_keyboard">Keyboard</string>
+    <string name="action_overlay_editor">Keymap</string>
+    <string name="action_quick_drawer">Controls</string>
+
+    <!-- Overlay Editor -->
+    <string name="editor_add_key">Add Key</string>
+    <string name="editor_add_stick">Add WASD Stick</string>
+    <string name="editor_save_preset">Save JSON</string>
+    <string name="editor_load_preset">Load JSON</string>
+    <string name="editor_done">Done</string>
+
+    <!-- Quick Control Drawer -->
+    <string name="drawer_title">Quick Controls</string>
+    <string name="ctrl_view_only">View-Only Mode</string>
+    <string name="ctrl_mute_host">Mute Host Speakers</string>
+    <string name="ctrl_superscreen">Super-Screen Active</string>
+    <string name="ctrl_auto_lock">Auto-Lock on Disconnect</string>
+    <string name="ctrl_show_desktop">Show Desktop (Win+D)</string>
+    <string name="ctrl_task_view">All Windows (Win+Tab)</string>
+    <string name="ctrl_switch_monitor">Switch Monitor (Primary / Secondary)</string>
+    <string name="ctrl_reboot">Remote Reboot</string>
+    <string name="ctrl_shutdown">Remote Shutdown</string>
+    <string name="ctrl_exit_stream">Exit Stream</string>
+
+    <!-- Terminal -->
+    <string name="title_terminal">Live PowerShell</string>
+    <string name="hint_terminal_cmd">Enter PowerShell command…</string>
+    <string name="btn_send">Send</string>
+
+    <!-- File Transfer -->
+    <string name="title_files">Dual-Pane File Transfer</string>
+    <string name="label_local_pane">Local (Android)</string>
+    <string name="label_remote_pane">Remote (Windows PC)</string>
+    <string name="btn_upload">Upload →</string>
+    <string name="btn_download">← Download</string>
+    <string name="btn_up">Up</string>
+    <string name="btn_refresh">Refresh</string>
+</resources>
