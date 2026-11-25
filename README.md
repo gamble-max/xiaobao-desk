@@ -1,5 +1,8 @@
 # XiaobaoDesk
 
+> 💡 **开箱即用提示：普通用户无需下载或编译仓库源码！**  
+> 请直接前往 [Releases](https://github.com/gamble-max/xiaobao-desk/releases/latest) 下载封装好的 **`XiaobaoDesk-Setup.exe`** 与 **`XiaobaoDesk.apk`**，双击即可弹窗授权安装使用。
+
 低延迟 Windows 远程桌面与 **无线副屏** 工具（最高 120FPS 硬件编码、Windows 原生触控不抢占实体鼠标、双指中点滚动、主屏息屏防窥、内置终端与文件传输）。
 
 **默认全程使用裸 IP + TLS 1.3 证书指纹校验，无需任何域名，也不假设你在同一局域网。**
@@ -67,3 +70,29 @@ XiaobaoDesk 默认完全基于 **裸 IP + 证书指纹锁定**，不依赖域名
 
 1. **无服务器模式配合 DDNS**：家用宽带的公网 IPv6 / IPv4 在重启光猫后可能变化。在电脑上用 `ddns-go` 等工具把域名（如 `pc.example.com`）动态解析到家里电脑 IP 后，电脑控制台的「对外连接地址」下拉框直接手动改填 `pc.example.com:21116`，手机端无需每次重新改 IP。
 2. **独立服务器模式换机器免重配**：若将来更换云服务器，只需在安装新服务端前指定域名环境变量（或解析新 IP 到同一域名），客户端沿用原域名即可。
+
+---
+
+<details>
+<summary>开发者附录：源码目录结构与自行构建说明（普通用户无需操作）</summary>
+
+```text
+xiaobao-desk/
+├── android/          # Android 客户端源码 (Kotlin, MediaCodec 低延迟硬解)
+├── win-host/         # Windows 被控端守护进程 (Go: TLS 1.3 P2P, ConPTY, 文件服务)
+├── win-media/        # Windows 媒体核心 (C++: DXGI 采集, MF 硬件编码, MttVDD 副屏, 原生触控)
+├── win-installer/    # Windows 图形控制台 (XiaobaoDesk.exe) 与 UAC 一键安装包 (XiaobaoDesk-Setup.exe)
+├── hub/              # 信令与 TLS 1.3 中继服务端 (Go 单二进制，同时用于内置模式与 Linux 独立部署)
+├── drivers/vdd/      # MttVDD 虚拟显示器驱动包与触控分辨率配置
+├── protocol/         # 多路复用二进制帧协议规范 (PROTOCOL.md)
+├── scripts/          # 一键封装构建脚本 (build-release.ps1)
+└── e2e/              # 端到端集成测试
+```
+
+如需本地自行编译封装全套产物，在安装有 Go、VS2022 Build Tools、JDK 17 与 Android SDK 的 Windows 环境下运行：
+```powershell
+.\scripts\build-release.ps1
+```
+产物将输出至 `dist/`（`XiaobaoDesk-Setup.exe`、`XiaobaoDesk.apk`、`xb-hub-linux-amd64`、`xb-hub-linux-arm64`）。
+
+</details>
