@@ -17,7 +17,9 @@ const (
 	ChanFile  byte = 0x06
 
 	HeaderSize     = 5
-	DefaultMaxSize = 16 * 1024 * 1024 // 16 MiB
+	MaxCtrlSize    = 64 * 1024        // 64 KiB
+	MaxRelaySize   = 8 * 1024 * 1024  // 8 MiB
+	DefaultMaxSize = MaxRelaySize
 )
 
 var ErrFrameTooLarge = errors.New("frame payload exceeds maximum allowed size")
@@ -53,8 +55,12 @@ func ReadFrame(r io.Reader, maxLen uint32) (Frame, error) {
 
 // WriteFrame writes a single framed message to w.
 func WriteFrame(w io.Writer, channel byte, payload []byte) error {
-	if len(payload) > DefaultMaxSize {
-		return fmt.Errorf("%w: %d > %d", ErrFrameTooLarge, len(payload), DefaultMaxSize)
+	maxLen := MaxRelaySize
+	if channel == ChanCtrl {
+		maxLen = MaxCtrlSize
+	}
+	if len(payload) > maxLen {
+		return fmt.Errorf("%w: %d > %d", ErrFrameTooLarge, len(payload), maxLen)
 	}
 	buf := make([]byte, HeaderSize+len(payload))
 	buf[0] = channel
@@ -75,7 +81,7 @@ func WriteCtrl(w io.Writer, v any) error {
 
 // ReadCtrl reads a frame and ensures it is ChanCtrl, unmarshaling JSON into out.
 func ReadCtrl(r io.Reader, out any) (Frame, error) {
-	f, err := ReadFrame(r, DefaultMaxSize)
+	f, err := ReadFrame(r, MaxCtrlSize)
 	if err != nil {
 		return f, err
 	}

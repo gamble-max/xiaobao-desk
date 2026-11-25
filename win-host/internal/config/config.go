@@ -35,6 +35,7 @@ type Config struct {
 	MediaCorePath        string   `json:"media_core_path"`
 	AutoLockOnDisconnect bool     `json:"auto_lock_on_disconnect"`
 	FileRootDir          string   `json:"file_root_dir,omitempty"`
+	EnableTerminal       bool     `json:"enable_terminal"`
 }
 
 // DefaultConfigPath returns xb-host-config.json in the executable directory.
@@ -116,8 +117,10 @@ func InitConfig(configPath string, force bool) (*Config, string, error) {
 		StrictAllowlist:      false,
 		MediaCorePath:        filepath.Join(exeDir, "xb-media-core.exe"),
 		AutoLockOnDisconnect: false,
+		EnableTerminal:       false,
 	}
 
+	_ = RestrictDirPermissions(dir)
 	if err := SaveRestricted(configPath, cfg); err != nil {
 		return nil, "", err
 	}
@@ -153,6 +156,7 @@ func SaveRestricted(path string, cfg *Config) error {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
+	_ = RestrictDirPermissions(filepath.Dir(path))
 	return RestrictFilePermissions(path)
 }
 
@@ -166,6 +170,20 @@ func RestrictFilePermissions(path string) error {
 		return nil
 	}
 	cmd := exec.Command("icacls", path, "/inheritance:r", "/grant:r", u.Username+":(R,W)")
+	_ = cmd.Run()
+	return nil
+}
+
+// RestrictDirPermissions restricts directory ACLs on Windows to the current user only.
+func RestrictDirPermissions(dir string) error {
+	if runtime.GOOS != "windows" {
+		return os.Chmod(dir, 0700)
+	}
+	u, err := user.Current()
+	if err != nil || u.Username == "" {
+		return nil
+	}
+	cmd := exec.Command("icacls", dir, "/inheritance:r", "/grant:r", u.Username+":(OI)(CI)F")
 	_ = cmd.Run()
 	return nil
 }

@@ -114,14 +114,47 @@ class XbConnectionManager(context: Context) {
     }
 
     private fun closeActiveSocket() {
+        val sockToClose: SSLSocket?
+        val outToFlush: OutputStream?
         synchronized(writeLock) {
-            try {
-                activeSocket?.close()
-            } catch (_: Exception) {
-            }
+            sockToClose = activeSocket
+            outToFlush = activeOut
             activeSocket = null
             activeOut = null
             activeIn = null
+        }
+        if (sockToClose != null) {
+            val cleanupThread = Thread {
+                if (outToFlush != null) {
+                    try {
+                        val superOff = JSONObject().apply {
+                            put("type", "set_superscreen")
+                            put("width", 0)
+                            put("height", 0)
+                            put("hz", 0)
+                            put("enable", false)
+                            put("migrate_windows", false)
+                        }.toString().toByteArray(Charsets.UTF_8)
+                        Protocol.writeFrame(outToFlush, Protocol.CHANNEL_CTRL, superOff)
+
+                        val privacyOff = JSONObject().apply {
+                            put("type", "privacy_screen")
+                            put("enable", false)
+                        }.toString().toByteArray(Charsets.UTF_8)
+                        Protocol.writeFrame(outToFlush, Protocol.CHANNEL_CTRL, privacyOff)
+                    } catch (_: Exception) {
+                    }
+                }
+                try {
+                    sockToClose.close()
+                } catch (_: Exception) {
+                }
+            }
+            cleanupThread.start()
+            try {
+                cleanupThread.join(250)
+            } catch (_: InterruptedException) {
+            }
         }
     }
 
@@ -441,17 +474,24 @@ class XbConnectionManager(context: Context) {
         expectedSha256: String,
         timeoutMs: Int
     ): SSLSocket {
-        val normalizedPin = expectedSha256.replace(":", "").replace(" ", "").lowercase()
+        val normalizedPin = expectedSha256.replace(":", "").replace(" ", "").trim().lowercase()
+        if (normalizedPin.isEmpty()) {
+            throw CertificateException("Missing TLS certificate SHA-256 fingerprint (fail-closed)")
+        }
+        if (!normalizedPin.matches(SHA256_HEX_REGEX)) {
+            throw CertificateException("Invalid TLS certificate SHA-256 fingerprint format (expected 64 hex chars)")
+        }
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                 if (chain.isNullOrEmpty()) throw CertificateException("Empty server certificate chain")
-                if (normalizedPin.isNotEmpty()) {
-                    val digest = MessageDigest.getInstance("SHA-256").digest(chain[0].encoded)
-                    val actual = digest.joinToString("") { "%02x".format(it) }
-                    if (actual != normalizedPin) {
-                        throw CertificateException("TLS certificate SHA-256 mismatch")
-                    }
+                if (!normalizedPin.matches(SHA256_HEX_REGEX)) {
+                    throw CertificateException("Missing or invalid TLS certificate SHA-256 fingerprint (fail-closed)")
+                }
+                val digest = MessageDigest.getInstance("SHA-256").digest(chain[0].encoded)
+                val actual = digest.joinToString("") { "%02x".format(it) }
+                if (actual != normalizedPin) {
+                    throw CertificateException("TLS certificate SHA-256 mismatch")
                 }
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
@@ -478,6 +518,8 @@ class XbConnectionManager(context: Context) {
     }
 
     companion object {
+        private val SHA256_HEX_REGEX = Regex("^[0-9a-f]{64}$")
+
         fun parseHostPort(endpoint: String, defaultPort: Int): Pair<String, Int>? {
             val trimmed = endpoint.trim()
             if (trimmed.isEmpty()) return null

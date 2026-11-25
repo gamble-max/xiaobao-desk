@@ -28,10 +28,23 @@
 namespace {
 
 std::atomic<bool> g_quit{false};
+std::atomic<xb::PrivacyScreen*> g_privacy_screen{nullptr};
 
 BOOL WINAPI console_ctrl_handler(DWORD) {
     g_quit.store(true);
+    if (auto* ps = g_privacy_screen.load()) {
+        ps->SetEnabled(false);
+    }
+    xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
     return TRUE;
+}
+
+LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS*) {
+    if (auto* ps = g_privacy_screen.load()) {
+        ps->SetEnabled(false);
+    }
+    xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
+    return EXCEPTION_EXECUTE_HANDLER;
 }
 
 void write_be64(uint8_t* dst, uint64_t v) {
@@ -333,12 +346,16 @@ int main(int argc, char** argv) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+    SetUnhandledExceptionFilter(unhandled_exception_filter);
 
     bool selftest = false;
     bool test_vdd = false;
     std::string pipe_name;
     std::string tcp_addr;
     std::string token;
+    if (const char* env_tok = std::getenv("XB_IPC_TOKEN")) {
+        token = env_tok;
+    }
     EncoderConfig init_cfg;
 
     for (int i = 1; i < argc; ++i) {
@@ -352,7 +369,11 @@ int main(int argc, char** argv) {
         } else if (arg == "--tcp" && i + 1 < argc) {
             tcp_addr = argv[++i];
         } else if (arg == "--token" && i + 1 < argc) {
-            token = argv[++i];
+            if (token.empty()) {
+                token = argv[++i];
+            } else {
+                ++i;
+            }
         } else if (arg == "--fps" && i + 1 < argc) {
             init_cfg.fps = static_cast<uint32_t>(std::atoi(argv[++i]));
             if (init_cfg.fps < 1 || init_cfg.fps > 240) init_cfg.fps = 60;
@@ -409,9 +430,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    ipc.SendCtrlJson("{\"type\":\"auth\",\"token\":\"" + xb::json_escape(token) + "\"}");
+
     xb::DisplayCtrl display_ctrl;
     display_ctrl.CaptureOriginalMode();
     xb::PrivacyScreen privacy_screen;
+    g_privacy_screen.store(&privacy_screen);
+    privacy_screen.SetEnabled(false);
+    xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
 
     xb::CaptureDxgi capture;
     std::string err;
@@ -485,6 +511,12 @@ int main(int argc, char** argv) {
     std::atomic<int> requested_output_idx{-1};
     std::atomic<bool> force_idr{true};
 
+    auto now_ms_fn = []() -> int64_t {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    };
+    std::atomic<int64_t> last_rx_ms{now_ms_fn()};
+
     // Dedicated IPC reader thread
     std::thread reader([&]() {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -492,6 +524,9 @@ int main(int argc, char** argv) {
         xb::ChannelId ch;
         std::vector<uint8_t> payload;
         while (!g_quit.load() && ipc.RecvFrame(ch, payload)) {
+            if (ch == xb::ChannelId::CTRL || ch == xb::ChannelId::INPUT) {
+                last_rx_ms.store(now_ms_fn(), std::memory_order_relaxed);
+            }
             if (ch == xb::ChannelId::INPUT) {
                 std::string s(payload.begin(), payload.end());
                 xb::JsonValue jv;
@@ -549,7 +584,7 @@ int main(int argc, char** argv) {
                                 } else if (display_ctrl.IsModified()) {
                                     reinit_capture.store(true);
                                 }
-                                if (jv.get_bool("migrate_windows", true)) {
+                                if (jv.get_bool("migrate_windows", false)) {
                                     display_ctrl.MigrateWindowsToSecondary();
                                 }
                             } else {
@@ -632,6 +667,10 @@ int main(int argc, char** argv) {
                     force_idr.store(true);
                 } else if (type == "ping") {
                     ipc.SendCtrlJson("{\"type\":\"pong\"}");
+                } else if (type == "shutdown") {
+                    privacy_screen.SetEnabled(false);
+                    xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
+                    g_quit.store(true);
                 }
             }
         }
@@ -653,6 +692,19 @@ int main(int argc, char** argv) {
     std::vector<xb::EncodedFrame> encoded_frames;
 
     while (!g_quit.load() && ipc.IsConnected()) {
+        if ((display_ctrl.HasSecondaryDisplay() || privacy_screen.IsEnabled()) &&
+            (now_ms_fn() - last_rx_ms.load(std::memory_order_relaxed) > 20000)) {
+            privacy_screen.SetConfineRect(nullptr);
+            privacy_screen.SetEnabled(false);
+            display_ctrl.RestoreOriginalMode();
+            xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
+            if (capture.CurrentOutputIndex() != 0) {
+                requested_output_idx.store(0);
+                reinit_capture.store(true);
+            }
+            last_rx_ms.store(now_ms_fn(), std::memory_order_relaxed);
+        }
+
         auto loop_now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::milliseconds>(loop_now - last_clip_tp).count() >= 600) {
             last_clip_tp = loop_now;
@@ -838,6 +890,8 @@ int main(int argc, char** argv) {
     audio.StopCapture();
     audio.RestoreHostMute();
     display_ctrl.RestoreOriginalMode();
+    xb::DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows();
+    g_privacy_screen.store(nullptr);
     ipc.Close();
     if (reader.joinable()) reader.join();
     encoder.Shutdown();

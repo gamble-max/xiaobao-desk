@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         tvStatusBadge = findViewById(R.id.tvConnectionBadge)
         viewStatusDot = findViewById(R.id.viewStatusDot)
         topBar = tvStatusBadge.parent as LinearLayout
-        findViewById<TextView>(R.id.tvAppTitle).text = "XiaobaoDesk v1.5.0"
+        findViewById<TextView>(R.id.tvAppTitle).text = "XiaobaoDesk v1.6.0"
 
         if (savedInstanceState == null) {
             showTabFragment(ConnectionFragment())
@@ -98,11 +98,7 @@ class MainActivity : AppCompatActivity() {
         val inlineData = uri.getQueryParameter("data")?.trim().orEmpty()
         if (inlineData.isNotEmpty()) {
             try {
-                val rawBytes = android.util.Base64.decode(
-                    inlineData,
-                    android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
-                )
-                val profile = ConnectionProfile.fromJson(JSONObject(String(rawBytes, Charsets.UTF_8)))
+                val profile = ConnectionProfile.fromImportDataParam(inlineData)
                 ConnectionProfileStore(applicationContext).upsert(profile)
                 Toast.makeText(this, "已离线导入配置: ${profile.name}", Toast.LENGTH_LONG).show()
                 if (isStreaming) {
@@ -150,7 +146,7 @@ class MainActivity : AppCompatActivity() {
                 val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 conn.disconnect()
 
-                val profile = ConnectionProfile.fromJson(JSONObject(body))
+                val profile = ConnectionProfile.parseAndValidateImportJson(body)
                 ConnectionProfileStore(applicationContext).upsert(profile)
 
                 withContext(Dispatchers.Main) {

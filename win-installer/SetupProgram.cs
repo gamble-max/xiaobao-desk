@@ -91,7 +91,7 @@ namespace XiaobaoDeskSetup
 
         public SetupForm()
         {
-            Text = "XiaobaoDesk v1.5.0 一键安装程序";
+            Text = "XiaobaoDesk v1.6.0 一键安装程序";
             Size = new Size(520, 320);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;

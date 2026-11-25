@@ -1,4 +1,4 @@
-# XiaobaoDesk
+# XiaobaoDesk v1.6.0
 
 > 💡 **开箱即用提示：普通用户无需下载或编译仓库源码！**  
 > 请直接前往 [Releases](https://github.com/gamble-max/xiaobao-desk/releases/latest) 下载封装好的 **`XiaobaoDesk-Setup.exe`** 与 **`XiaobaoDesk.apk`**，双击即可弹窗授权安装使用。
@@ -6,6 +6,23 @@
 低延迟 Windows 远程桌面与 **无线副屏** 工具（最高 120FPS 硬件编码、Windows 原生触控不抢占实体鼠标、双指中点滚动、主屏息屏防窥、内置终端与文件传输）。
 
 **默认全程使用裸 IP + TLS 1.3 证书指纹校验，无需任何域名，也不假设你在同一局域网。**
+
+---
+
+## 核心特性与 v1.6.0 安全/防呆升级
+
+### 1. 零幽灵副屏 Fail-Safe 设计（Zero-Phantom-Display）
+- **默认零虚拟显示器**：`vdd_settings.xml` 默认配置为 `<count>0</count>`，安装/修复驱动后不会常驻幽灵副屏。
+- **启动与退出自动清理**：控制台启动时与「彻底退出」时自动执行 `ForceSinglePrimaryScreenIfVirtual()`，通过零尺寸 `ChangeDisplaySettingsExW` + `SetDisplayConfig(SDC_TOPOLOGY_INTERNAL | SDC_APPLY)` 解除残留 `Virtual Display Driver` / `MttVDD` 虚拟屏，并将任何滞留屏外的窗口拉回主屏。
+- **一键物理兜底**：控制台界面提供醒目的 **「一键恢复单主屏（解除虚拟副屏）」** 按钮，系统托盘菜单提供 **「恢复单主屏」** 快捷项，随时一秒恢复单主屏。
+
+### 2. 全栈纵深安全防护
+- **TLS 1.3 强加密与证书指纹锁定（Cert Pinning）**：全链路强制 TLS 1.3，客户端通过 ECDSA P-256 证书 SHA-256 指纹严格校验服务端与被控端身份，拒绝中间人劫持。
+- **HMAC-SHA256 挑战-响应防重放与防爆破**：每次连接下发随机 32 字节 Nonce，采用恒定时间（constant-time）比对校验签名；`xb-hub` 强制 **10 秒握手读写超时**、单 IP **5 次鉴权失败封禁 5 分钟**，并严格限制控制帧（`<= 64 KB`）与中继帧（`<= 8 MB`）大小上限。
+- **本地 IPC 令牌鉴权**：`xb-host` 与 `xb-media-core` 之间采用独立 IPC 鉴权令牌隔离。
+- **文件传输目录沙盒（Directory Root Jail）**：文件服务严格限制在授权根目录内访问，拦截路径穿越。
+- **远程终端默认关闭（Terminal Opt-In）**：ConPTY 远程终端需显式启用，默认不暴露本地 Shell。
+- **本地配置与服务端系统加固**：Windows 端自动锁定 `~/.xiaobao-desk` 目录 ACL（禁用继承，仅当前用户与 `SYSTEM` 拥有完全控制权）；Linux `install-hub.sh` 自动配置 `chmod 600` 密钥权限与 `systemd` 沙盒（`NoNewPrivileges=true`、`PrivateTmp=true`、`ProtectSystem=strict`）。
 
 ---
 

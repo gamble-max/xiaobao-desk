@@ -51,3 +51,22 @@ func TestFrameTruncatedEOF(t *testing.T) {
 		t.Fatalf("expected ErrUnexpectedEOF, got %v", err)
 	}
 }
+
+func TestFrameCaps(t *testing.T) {
+	var buf bytes.Buffer
+	// ChanCtrl must reject > 64 KiB
+	if err := WriteFrame(&buf, ChanCtrl, make([]byte, MaxCtrlSize+1)); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("expected ErrFrameTooLarge for oversized ChanCtrl, got %v", err)
+	}
+	// ChanVideo must reject > 8 MiB
+	if err := WriteFrame(&buf, ChanVideo, make([]byte, MaxRelaySize+1)); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("expected ErrFrameTooLarge for oversized ChanVideo, got %v", err)
+	}
+	// ReadCtrl must reject > 64 KiB even if written as a raw frame
+	if err := WriteFrame(&buf, ChanCtrl, make([]byte, 16)); err != nil {
+		t.Fatalf("WriteFrame small ctrl: %v", err)
+	}
+	if _, err := ReadCtrl(&buf, nil); err != nil {
+		t.Fatalf("ReadCtrl small ctrl: %v", err)
+	}
+}

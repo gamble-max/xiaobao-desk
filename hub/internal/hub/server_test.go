@@ -451,3 +451,31 @@ func TestCertSHA256AndEmptyHostIDResolution(t *testing.T) {
 		t.Fatalf("unexpected host relay_bind notify: %v", hostNotify)
 	}
 }
+
+func TestAuthRateLimitBlocksAfterFiveFailures(t *testing.T) {
+	tcpAddr, _, _, fp, _ := startTestHub(t, nil)
+
+	for i := 0; i < 5; i++ {
+		c := dialPinnedTLS(t, tcpAddr, fp)
+		resp := authenticateConn(t, c, "client-brute", "client", "wrong-secret", false)
+		if resp["type"] != "auth_err" {
+			t.Fatalf("attempt %d: expected auth_err, got %v", i+1, resp)
+		}
+		_ = c.Close()
+	}
+
+	// 6th attempt from the same IP should be dropped immediately before TLS handshake / challenge.
+	blockedConn, err := tls.Dial("tcp", tcpAddr, &tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		MaxVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: true,
+	})
+	if err == nil {
+		defer blockedConn.Close()
+		_ = blockedConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var ch map[string]any
+		if _, err := proto.ReadCtrl(blockedConn, &ch); err == nil {
+			t.Fatalf("expected blocked connection to be closed without challenge, got %v", ch)
+		}
+	}
+}

@@ -538,6 +538,7 @@ class StreamingFragment : Fragment(), SurfaceHolder.Callback, InputManager.Input
         root.findViewById<Button>(R.id.btnExitStream).setOnClickListener {
             userExiting = true
             drawerLayout.closeDrawer(GravityCompat.END)
+            conn.setSuperScreen(0, 0, 0, false, false)
             conn.sendPrivacyScreen(false)
             conn.setMuteHost(false)
             conn.sendStreamEnable(false)
@@ -1023,8 +1024,10 @@ class StreamingFragment : Fragment(), SurfaceHolder.Callback, InputManager.Input
         mainHandler.removeCallbacks(longPressRunnable)
         inputManager?.unregisterInputDeviceListener(this)
         clipboardManager?.removePrimaryClipChangedListener(clipListener)
+        conn.setSuperScreen(0, 0, 0, false, false)
         conn.sendPrivacyScreen(false)
         conn.setMuteHost(false)
+        conn.sendStreamEnable(false)
         super.onDestroyView()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         if (autoLockOnDisconnect) {

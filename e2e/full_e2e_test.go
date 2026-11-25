@@ -240,6 +240,7 @@ type hostConfig struct {
 	StrictAllowlist   bool     `json:"strict_allowlist"`
 	MediaCorePath     string   `json:"media_core_path"`
 	FileRootDir       string   `json:"file_root_dir"`
+	EnableTerminal    bool     `json:"enable_terminal"`
 }
 
 type testEnv struct {
@@ -342,6 +343,7 @@ func startTestEnv(t *testing.T) *testEnv {
 	wCfg.MediaCorePath = mediaExe
 	wCfg.FileRootDir = fileRoot
 	wCfg.RequireTOTP = true
+	wCfg.EnableTerminal = true
 
 	updatedHostCfg, err := json.MarshalIndent(wCfg, "", "  ")
 	if err != nil {

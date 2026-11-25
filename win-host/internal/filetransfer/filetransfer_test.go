@@ -145,3 +145,120 @@ func TestListDirDownloadAndUpload(t *testing.T) {
 		t.Fatalf("uploaded file on disk mismatch: err=%v", err)
 	}
 }
+
+func TestRootJailAndSymlinkEscapeRejection(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secretFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("top-secret"), 0644); err != nil {
+		t.Fatalf("WriteFile secret: %v", err)
+	}
+
+	h := NewHandler(root)
+	defer h.Close()
+
+	// Traversal & absolute/drive paths must be rejected.
+	badPaths := []string{
+		"../secret.txt",
+		`..\..\Windows\win.ini`,
+		`C:\Windows\System32`,
+		`\\server\share\file.txt`,
+	}
+	for _, p := range badPaths {
+		if _, err := h.resolvePath(p); err == nil {
+			t.Fatalf("expected resolvePath(%q) to fail root jail check", p)
+		}
+	}
+
+	// Empty rootDir must default to XiaobaoDeskTransfer under home, never A:\..Z:\.
+	defaultHandler := NewHandler("")
+	defer defaultHandler.Close()
+	if defaultHandler.rootDir == "" || filepath.Base(defaultHandler.rootDir) != "XiaobaoDeskTransfer" {
+		t.Fatalf("expected empty rootDir to default to XiaobaoDeskTransfer, got %q", defaultHandler.rootDir)
+	}
+
+	// Symlink pointing outside rootDir must be rejected (skip only if OS denies symlink creation).
+	linkPath := filepath.Join(root, "escape-dir")
+	if err := os.Symlink(outside, linkPath); err == nil {
+		if _, err := h.resolvePath("escape-dir/secret.txt"); err == nil {
+			t.Fatalf("expected symlink escape to existing target to be rejected")
+		}
+		if _, err := h.resolvePath("escape-dir/new-upload.txt"); err == nil {
+			t.Fatalf("expected symlink escape via ancestor dir to be rejected")
+		}
+	} else {
+		t.Logf("symlink creation skipped (requires privilege on Windows): %v", err)
+	}
+}
+
+func TestUploadLimitsSizeAndConcurrency(t *testing.T) {
+	root := t.TempDir()
+	srvConn, cliConn := net.Pipe()
+	defer srvConn.Close()
+	defer cliConn.Close()
+
+	srvFC := protocol.NewFrameConn(srvConn)
+	cliFC := protocol.NewFrameConn(cliConn)
+
+	h := NewHandler(root)
+	defer h.Close()
+
+	go func() {
+		for {
+			f, err := srvFC.ReadFrame()
+			if err != nil {
+				return
+			}
+			if f.Channel == protocol.ChannelFILE {
+				h.HandleFrame(srvFC, f.Payload)
+			}
+		}
+	}()
+
+	// 1. Oversized upload (> 4 GiB) must return FileErr.
+	if err := cliFC.WriteSubcmdJSON(protocol.ChannelFILE, protocol.FileUploadStart, protocol.FileUploadStartMsg{
+		ID:   "aaaaaaaa-1111-4222-8333-444444444444",
+		Path: "too-big.bin",
+		Size: MaxUploadSize + 1,
+	}); err != nil {
+		t.Fatalf("write oversized start: %v", err)
+	}
+	fr, err := cliFC.ReadFrame()
+	if err != nil {
+		t.Fatalf("read oversized err: %v", err)
+	}
+	if fr.Payload[0] != protocol.FileErr {
+		t.Fatalf("expected FileErr for >4GiB upload, got 0x%02x", fr.Payload[0])
+	}
+
+	// 2. Max concurrent uploads = 4; 5th concurrent upload must return FileErr.
+	ids := []string{
+		"11111111-1111-4111-8111-111111111111",
+		"22222222-2222-4222-8222-222222222222",
+		"33333333-3333-4333-8333-333333333333",
+		"44444444-4444-4444-8444-444444444444",
+	}
+	for i, id := range ids {
+		if err := cliFC.WriteSubcmdJSON(protocol.ChannelFILE, protocol.FileUploadStart, protocol.FileUploadStartMsg{
+			ID:   id,
+			Path: filepath.Join("batch", string(rune('a'+i))+".bin"),
+			Size: 10,
+		}); err != nil {
+			t.Fatalf("write concurrent start %d: %v", i, err)
+		}
+	}
+	if err := cliFC.WriteSubcmdJSON(protocol.ChannelFILE, protocol.FileUploadStart, protocol.FileUploadStartMsg{
+		ID:   "55555555-5555-4555-8555-555555555555",
+		Path: "batch/e.bin",
+		Size: 10,
+	}); err != nil {
+		t.Fatalf("write 5th concurrent start: %v", err)
+	}
+	fr5, err := cliFC.ReadFrame()
+	if err != nil {
+		t.Fatalf("read 5th concurrent err: %v", err)
+	}
+	if fr5.Payload[0] != protocol.FileErr {
+		t.Fatalf("expected FileErr for 5th concurrent upload, got 0x%02x", fr5.Payload[0])
+	}
+}

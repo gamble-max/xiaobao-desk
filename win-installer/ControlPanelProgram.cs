@@ -7,8 +7,11 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -18,8 +21,221 @@ namespace XiaobaoDeskApp
 {
     static class NativeMethods
     {
+        public const uint DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x00000001;
+        public const uint DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004;
+        public const uint DM_POSITION = 0x00000020;
+        public const uint DM_PELSWIDTH = 0x00080000;
+        public const uint DM_PELSHEIGHT = 0x00100000;
+        public const uint CDS_UPDATEREGISTRY = 0x00000001;
+        public const uint CDS_NORESET = 0x10000000;
+        public const uint SDC_TOPOLOGY_INTERNAL = 0x00000001;
+        public const uint SDC_APPLY = 0x00000080;
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOZORDER = 0x0004;
+        public const uint SWP_NOACTIVATE = 0x0010;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceString;
+            public uint StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceKey;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DEVMODEW
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmDeviceName;
+            public ushort dmSpecVersion;
+            public ushort dmDriverVersion;
+            public ushort dmSize;
+            public ushort dmDriverExtra;
+            public uint dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public uint dmDisplayOrientation;
+            public uint dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmFormName;
+            public ushort dmLogPixels;
+            public uint dmBitsPerPel;
+            public uint dmPelsWidth;
+            public uint dmPelsHeight;
+            public uint dmDisplayFlags;
+            public uint dmDisplayFrequency;
+            public uint dmICMMethod;
+            public uint dmICMIntent;
+            public uint dmMediaType;
+            public uint dmDitherType;
+            public uint dmReserved1;
+            public uint dmReserved2;
+            public uint dmPanningWidth;
+            public uint dmPanningHeight;
+        }
+
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         [DllImport("user32.dll")]
         public static extern bool SetProcessDPIAware();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern bool EnumDisplayDevicesW(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int ChangeDisplaySettingsExW(string lpszDeviceName, ref DEVMODEW lpDevMode, IntPtr hwnd, uint dwflags, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int ChangeDisplaySettingsExW(string lpszDeviceName, IntPtr lpDevMode, IntPtr hwnd, uint dwflags, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern int SetDisplayConfig(uint numPathArrayElements, IntPtr pathArray, uint numModeInfoArrayElements, IntPtr modeInfoArray, uint flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowTextLengthW(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    }
+
+    static class DisplayHelper
+    {
+        public static bool IsVirtualDisplayDevice(NativeMethods.DISPLAY_DEVICE dd)
+        {
+            string desc = dd.DeviceString ?? "";
+            string id = dd.DeviceID ?? "";
+            return desc.IndexOf("Virtual Display Driver", StringComparison.OrdinalIgnoreCase) >= 0
+                || desc.IndexOf("MttVDD", StringComparison.OrdinalIgnoreCase) >= 0
+                || id.IndexOf("MttVDD", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        public static bool DetachVirtualDisplays(bool forceInternalTopology)
+        {
+            bool detachedAny = false;
+            try
+            {
+                for (uint i = 0; i < 32; i++)
+                {
+                    var dd = new NativeMethods.DISPLAY_DEVICE();
+                    dd.cb = Marshal.SizeOf(typeof(NativeMethods.DISPLAY_DEVICE));
+                    if (!NativeMethods.EnumDisplayDevicesW(null, i, ref dd, 0))
+                    {
+                        break;
+                    }
+                    bool attached = (dd.StateFlags & NativeMethods.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) != 0;
+                    bool primary = (dd.StateFlags & NativeMethods.DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+                    if (attached && !primary && IsVirtualDisplayDevice(dd))
+                    {
+                        var dm = new NativeMethods.DEVMODEW();
+                        dm.dmSize = (ushort)Marshal.SizeOf(typeof(NativeMethods.DEVMODEW));
+                        dm.dmFields = NativeMethods.DM_POSITION | NativeMethods.DM_PELSWIDTH | NativeMethods.DM_PELSHEIGHT;
+                        dm.dmPelsWidth = 0;
+                        dm.dmPelsHeight = 0;
+                        NativeMethods.ChangeDisplaySettingsExW(
+                            dd.DeviceName,
+                            ref dm,
+                            IntPtr.Zero,
+                            NativeMethods.CDS_UPDATEREGISTRY | NativeMethods.CDS_NORESET,
+                            IntPtr.Zero);
+                        detachedAny = true;
+                    }
+                }
+                if (detachedAny)
+                {
+                    NativeMethods.ChangeDisplaySettingsExW(null, IntPtr.Zero, IntPtr.Zero, 0, IntPtr.Zero);
+                }
+                if (detachedAny || forceInternalTopology)
+                {
+                    NativeMethods.SetDisplayConfig(
+                        0,
+                        IntPtr.Zero,
+                        0,
+                        IntPtr.Zero,
+                        NativeMethods.SDC_TOPOLOGY_INTERNAL | NativeMethods.SDC_APPLY);
+                }
+            }
+            catch { }
+            return detachedAny;
+        }
+
+        public static void RescueOffScreenWindows()
+        {
+            try
+            {
+                Rectangle primary = Screen.PrimaryScreen.WorkingArea;
+                NativeMethods.EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                {
+                    if (!NativeMethods.IsWindowVisible(hWnd) || NativeMethods.IsIconic(hWnd))
+                    {
+                        return true;
+                    }
+                    if (NativeMethods.GetWindowTextLengthW(hWnd) <= 0)
+                    {
+                        return true;
+                    }
+                    NativeMethods.RECT rc;
+                    if (!NativeMethods.GetWindowRect(hWnd, out rc))
+                    {
+                        return true;
+                    }
+                    int w = rc.Right - rc.Left;
+                    int h = rc.Bottom - rc.Top;
+                    if (w <= 0 || h <= 0)
+                    {
+                        return true;
+                    }
+                    var winRect = new Rectangle(rc.Left, rc.Top, w, h);
+                    if (!primary.IntersectsWith(winRect))
+                    {
+                        int newX = primary.Left + 40;
+                        int newY = primary.Top + 40;
+                        NativeMethods.SetWindowPos(
+                            hWnd,
+                            IntPtr.Zero,
+                            newX,
+                            newY,
+                            0,
+                            0,
+                            NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+                    }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+        }
     }
 
     static class Program
@@ -109,10 +325,18 @@ namespace XiaobaoDeskApp
             Directory.CreateDirectory(stageDir);
 
             string settingsSrc = Path.Combine(vddSrc, "vdd_settings.xml");
+            string settingsDst = Path.Combine(targetDir, "vdd_settings.xml");
             if (File.Exists(settingsSrc))
             {
                 string xml = File.ReadAllText(settingsSrc, Encoding.UTF8);
-                File.WriteAllText(Path.Combine(targetDir, "vdd_settings.xml"), xml, new UTF8Encoding(false));
+                xml = Regex.Replace(xml, @"<count>\s*\d+\s*</count>", "<count>0</count>");
+                File.WriteAllText(settingsDst, xml, new UTF8Encoding(false));
+            }
+            else if (File.Exists(settingsDst))
+            {
+                string xml = File.ReadAllText(settingsDst, Encoding.UTF8);
+                xml = Regex.Replace(xml, @"<count>\s*\d+\s*</count>", "<count>0</count>");
+                File.WriteAllText(settingsDst, xml, new UTF8Encoding(false));
             }
 
             using (var key = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\MikeTheTech\VirtualDisplayDriver"))
@@ -153,7 +377,7 @@ namespace XiaobaoDeskApp
                     RunHidden("pnputil.exe", string.Format("/add-driver \"{0}\" /install", infFile));
                 }
             }
-            RunHidden("DisplaySwitch.exe", "/internal");
+            DisplayHelper.DetachVirtualDisplays(true);
         }
 
         private static int RunHidden(string fileName, string args)
@@ -225,6 +449,7 @@ namespace XiaobaoDeskApp
 
             _cfgDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".xiaobao-desk");
             Directory.CreateDirectory(_cfgDir);
+            LockConfigDirectoryAcl(_cfgDir);
             _hostCfgPath = Path.Combine(_cfgDir, "host.json");
             _hubCfgPath = Path.Combine(_cfgDir, "hub.json");
             _hubFpPath = Path.Combine(_cfgDir, "hub-fingerprint.txt");
@@ -232,14 +457,15 @@ namespace XiaobaoDeskApp
             _hostLogPath = Path.Combine(_cfgDir, "host.log");
             _hubLogPath = Path.Combine(_cfgDir, "hub.log");
 
-            Text = "XiaobaoDesk 电脑端控制台 v1.5.0";
-            Size = new Size(700, 620);
+            Text = "XiaobaoDesk 电脑端控制台 v1.6.0";
+            Size = new Size(700, 668);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             Font = new Font("Microsoft YaHei UI", 9.5f);
             BackColor = Color.FromArgb(248, 250, 252);
 
+            ForceSinglePrimaryScreenIfVirtual();
             BuildUi();
             EnsureConfigsInitialized();
             PopulateLocalAddresses();
@@ -249,6 +475,7 @@ namespace XiaobaoDeskApp
             var menu = new ContextMenuStrip();
             menu.Items.Add("打开控制台", null, (s, e) => ShowMainWindow());
             menu.Items.Add("复制手机一键配对码", null, (s, e) => CopyMobilePairingCode());
+            menu.Items.Add("恢复单主屏", null, (s, e) => ForceSinglePrimaryScreenIfVirtual(true));
             menu.Items.Add("重启后台服务", null, (s, e) => RestartServices());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("彻底退出 XiaobaoDesk", null, (s, e) => ExitCompletely());
@@ -445,6 +672,20 @@ namespace XiaobaoDeskApp
             var btnExit = new Button { Text = "彻底退出", Location = new Point(546, y), Size = new Size(120, 34) };
             btnExit.Click += (s, e) => ExitCompletely();
             main.Controls.Add(btnExit);
+
+            y += 42;
+            var btnRestorePrimary = new Button
+            {
+                Text = "一键恢复单主屏（解除虚拟副屏）",
+                Location = new Point(16, y),
+                Size = new Size(650, 36),
+                BackColor = Color.FromArgb(245, 158, 11),
+                ForeColor = Color.FromArgb(15, 23, 42),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold)
+            };
+            btnRestorePrimary.Click += (s, e) => ForceSinglePrimaryScreenIfVirtual(true);
+            main.Controls.Add(btnRestorePrimary);
         }
 
         private void EnsureConfigsInitialized()
@@ -540,6 +781,59 @@ namespace XiaobaoDeskApp
             ui["remote_hub_fp"] = _remoteHubFp;
             ui["remote_hub_secret"] = _remoteHubSecret;
             File.WriteAllText(_uiCfgPath, _json.Serialize(ui), Encoding.UTF8);
+            LockConfigDirectoryAcl(_cfgDir);
+        }
+
+        private static void LockConfigDirectoryAcl(string dirPath)
+        {
+            try
+            {
+                if (!Directory.Exists(dirPath)) return;
+                var dirInfo = new DirectoryInfo(dirPath);
+                var sec = dirInfo.GetAccessControl();
+                sec.SetAccessRuleProtection(true, false);
+                var existing = sec.GetAccessRules(true, true, typeof(SecurityIdentifier));
+                foreach (FileSystemAccessRule rule in existing)
+                {
+                    sec.RemoveAccessRule(rule);
+                }
+                var currentUser = WindowsIdentity.GetCurrent().User;
+                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                var flags = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+                if (currentUser != null)
+                {
+                    sec.AddAccessRule(new FileSystemAccessRule(currentUser, FileSystemRights.FullControl, flags, PropagationFlags.None, AccessControlType.Allow));
+                }
+                sec.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, flags, PropagationFlags.None, AccessControlType.Allow));
+                dirInfo.SetAccessControl(sec);
+            }
+            catch { }
+        }
+
+        private void ForceSinglePrimaryScreenIfVirtual()
+        {
+            ForceSinglePrimaryScreenIfVirtual(false);
+        }
+
+        private void ForceSinglePrimaryScreenIfVirtual(bool showFeedback)
+        {
+            bool detached = DisplayHelper.DetachVirtualDisplays(showFeedback);
+            DisplayHelper.RescueOffScreenWindows();
+            if (Visible)
+            {
+                Rectangle primary = Screen.PrimaryScreen.WorkingArea;
+                if (!primary.IntersectsWith(Bounds))
+                {
+                    Location = new Point(primary.Left + 40, primary.Top + 40);
+                }
+            }
+            if (showFeedback)
+            {
+                string msg = detached
+                    ? "已解除虚拟副屏并恢复单主屏显示，同时将副屏窗口拉回主屏。"
+                    : "未检测到活跃的虚拟副屏，已执行单主屏拓扑确认并将屏外窗口拉回主屏。";
+                MessageBox.Show(msg, "XiaobaoDesk", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
 
         private void PopulateLocalAddresses()
@@ -887,6 +1181,7 @@ namespace XiaobaoDeskApp
                 StopProcess(ref _hubProc);
                 KillMediaCoreFromAppDir();
             }
+            ForceSinglePrimaryScreenIfVirtual();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             Application.Exit();

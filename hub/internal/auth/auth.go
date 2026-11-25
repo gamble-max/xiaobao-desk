@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"strings"
 )
@@ -39,6 +40,14 @@ func VerifyHMAC(nonce, secret, providedHex string) bool {
 	return hmac.Equal(expected, provided)
 }
 
+// ConstantTimeEqual compares two strings in constant time when their lengths match.
+func ConstantTimeEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 // IsDeviceAllowed returns true if allowlist is empty or deviceID is present in allowlist.
 func IsDeviceAllowed(deviceID string, allowlist []string) bool {
 	if deviceID == "" {
@@ -48,7 +57,7 @@ func IsDeviceAllowed(deviceID string, allowlist []string) bool {
 		return true
 	}
 	for _, id := range allowlist {
-		if id == deviceID {
+		if ConstantTimeEqual(id, deviceID) {
 			return true
 		}
 	}

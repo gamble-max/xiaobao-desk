@@ -212,6 +212,9 @@ bool IpcTransport::RecvFrame(ChannelId& out_ch, std::vector<uint8_t>& out_payloa
                    (static_cast<uint32_t>(hdr[3]) << 8) |
                    static_cast<uint32_t>(hdr[4]);
 
+    if ((out_ch == ChannelId::CTRL || out_ch == ChannelId::INPUT) && len > 262144) {
+        return false; // Reject oversized control/input frame (>256 KB)
+    }
     if (len > 64 * 1024 * 1024) {
         return false; // Sanity cap: 64 MB
     }

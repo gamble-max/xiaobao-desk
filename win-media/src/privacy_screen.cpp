@@ -7,6 +7,11 @@
 namespace xb {
 
 static LRESULT CALLBACK privacy_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_HOTKEY && wp == 99) {
+        ClipCursor(nullptr);
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        return 0;
+    }
     if (msg == WM_ERASEBKGND) {
         HDC hdc = reinterpret_cast<HDC>(wp);
         RECT rc{};
@@ -110,6 +115,7 @@ void PrivacyScreen::ui_thread_main() {
     ShowWindow(hwnd, SW_SHOWNA);
     UpdateWindow(hwnd);
     SetTimer(hwnd, 1, 150, nullptr);
+    RegisterHotKey(hwnd, 99, MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'P');
 
     hwnd_ = hwnd;
     if (!enabled_.load()) {
@@ -128,8 +134,10 @@ void PrivacyScreen::ui_thread_main() {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    UnregisterHotKey(hwnd, 99);
     KillTimer(hwnd, 1);
     ClipCursor(nullptr);
+    enabled_.store(false);
     hwnd_ = nullptr;
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaobaodesk/win-host/internal/config"
+	"github.com/xiaobaodesk/win-host/internal/displayguard"
 	"github.com/xiaobaodesk/win-host/internal/filetransfer"
 	"github.com/xiaobaodesk/win-host/internal/ipc"
 	"github.com/xiaobaodesk/win-host/internal/protocol"
@@ -38,12 +39,15 @@ func HandleConnection(conn net.Conn, fc *protocol.FrameConn, cfg *config.Config,
 	log.Printf("[session] authenticated (%s) device=%s session=%s", source, deviceID, sessionID)
 
 	if sup != nil {
+		lease := sup.AcquireSession()
 		sup.SetClientSink(fc)
 		_ = sup.SendCTRL(map[string]any{"type": "view_only", "enable": false})
 		_ = sup.SendCTRL(map[string]any{"type": "preserve_cursor", "enable": true})
 		_ = sup.SendCTRL(map[string]any{"type": "idr"})
 		defer func() {
-			sup.SetClientSink(nil)
+			if !sup.ReleaseSession(lease) {
+				return
+			}
 			_ = sup.SendCTRL(map[string]any{"type": "view_only", "enable": false})
 			_ = sup.SendCTRL(map[string]any{"type": "preserve_cursor", "enable": true})
 			_ = sup.SendCTRL(map[string]any{"type": "privacy_screen", "enable": false})
@@ -53,6 +57,19 @@ func HandleConnection(conn net.Conn, fc *protocol.FrameConn, cfg *config.Config,
 			if cfg.AutoLockOnDisconnect {
 				_ = sup.SendCTRL(map[string]any{"type": "desktop_action", "cmd": "lock"})
 			}
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				if sup.ActiveSessionCount() == 0 {
+					displayguard.EnsureNoVirtualDisplayAttached()
+				}
+			}()
+		}()
+	} else {
+		defer func() {
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				displayguard.EnsureNoVirtualDisplayAttached()
+			}()
 		}()
 	}
 
@@ -103,6 +120,12 @@ func HandleConnection(conn net.Conn, fc *protocol.FrameConn, cfg *config.Config,
 			}
 			subcmd := frame.Payload[0]
 			body := frame.Payload[1:]
+			if !cfg.EnableTerminal {
+				if subcmd == protocol.TermOpen || subcmd == protocol.TermStdin {
+					_ = fc.WriteSubcmdBytes(protocol.ChannelTERM, protocol.TermStdout, []byte("\r\n[Terminal disabled by host configuration]\r\n"))
+				}
+				continue
+			}
 			switch subcmd {
 			case protocol.TermOpen:
 				var sz protocol.TermSizeMsg

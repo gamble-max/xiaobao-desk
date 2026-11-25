@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,18 +18,52 @@ import (
 	"github.com/xiaobaodesk/win-host/internal/security"
 )
 
-// Supervisor launches xb-media-core.exe over local TCP IPC (--tcp 127.0.0.1:<port> --token <hex>)
-// and bridges CTRL, VIDEO, AUDIO, and INPUT frames with the active remote session.
+// Supervisor launches xb-media-core.exe over local TCP IPC (--tcp 127.0.0.1:<port>)
+// with XB_IPC_TOKEN passed via environment variable, and bridges CTRL, VIDEO, AUDIO, and INPUT frames.
 type Supervisor struct {
-	exePath string
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	conn    *protocol.FrameConn
-	sink    *protocol.FrameConn
+	exePath     string
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	conn        *protocol.FrameConn
+	sink        *protocol.FrameConn
+	nextLease   uint64
+	activeLease uint64
 }
 
 func NewSupervisor(exePath string) *Supervisor {
 	return &Supervisor{exePath: exePath}
+}
+
+// AcquireSession registers a new active client lease and returns its unique lease ID.
+func (s *Supervisor) AcquireSession() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextLease++
+	s.activeLease = s.nextLease
+	return s.activeLease
+}
+
+// ReleaseSession releases the lease if it is still the active session, clearing the client sink.
+// Returns true if this call released the active session (so overlapping disconnects do not clobber newer sessions).
+func (s *Supervisor) ReleaseSession(lease uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if lease == 0 || s.activeLease != lease {
+		return false
+	}
+	s.activeLease = 0
+	s.sink = nil
+	return true
+}
+
+// ActiveSessionCount returns 1 if a client session lease is currently active, else 0.
+func (s *Supervisor) ActiveSessionCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.activeLease != 0 {
+		return 1
+	}
+	return 0
 }
 
 // SetClientSink attaches (or detaches when nil) the active remote client FrameConn.
@@ -102,7 +137,7 @@ func (s *Supervisor) Run(ctx context.Context) {
 }
 
 func (s *Supervisor) runOnce(ctx context.Context) error {
-	token, err := security.RandomHex(16)
+	token, err := security.RandomHex(32)
 	if err != nil {
 		return err
 	}
@@ -114,7 +149,8 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 	defer ln.Close()
 
 	addr := ln.Addr().String()
-	cmd := exec.CommandContext(ctx, s.exePath, "--tcp", addr, "--token", token)
+	cmd := exec.Command(s.exePath, "--tcp", addr)
+	cmd.Env = append(os.Environ(), "XB_IPC_TOKEN="+token)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -128,57 +164,84 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 	s.cmd = cmd
 	s.mu.Unlock()
 
-	defer func() {
-		s.mu.Lock()
-		if s.conn != nil {
-			_ = s.conn.Close()
-			s.conn = nil
-		}
-		s.cmd = nil
-		s.mu.Unlock()
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+	procExited := make(chan struct{})
+	go func() {
 		_ = cmd.Wait()
+		close(procExited)
 	}()
 
-	// Accept media-core connection with 10s timeout
-	if tcpLn, ok := ln.(*net.TCPListener); ok {
-		_ = tcpLn.SetDeadline(time.Now().Add(10 * time.Second))
-	}
-	rawConn, err := ln.Accept()
-	if err != nil {
-		return fmt.Errorf("accept media-core: %w", err)
-	}
-	fc := protocol.NewFrameConn(rawConn)
+	stopDone := make(chan struct{})
+	defer close(stopDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = ln.Close()
+			if mc := s.getMediaConn(); mc != nil {
+				_ = mc.WriteCTRL(map[string]any{"type": "shutdown"})
+			}
+			select {
+			case <-procExited:
+			case <-time.After(600 * time.Millisecond):
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+			}
+			if mc := s.getMediaConn(); mc != nil {
+				_ = mc.Close()
+			}
+		case <-stopDone:
+		}
+	}()
 
-	// Optional initial token verification if media-core sends an auth frame first
-	_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	firstFrame, err := fc.ReadFrame()
+	defer func() {
+		s.mu.Lock()
+		mc := s.conn
+		s.conn = nil
+		s.cmd = nil
+		s.mu.Unlock()
+		if mc != nil {
+			_ = mc.WriteCTRL(map[string]any{"type": "shutdown"})
+			_ = mc.Close()
+		}
+		select {
+		case <-procExited:
+		case <-time.After(600 * time.Millisecond):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-procExited
+		}
+	}()
+
+	fc, err := acceptAndAuth(ln, token)
 	if err != nil {
-		return fmt.Errorf("read initial frame: %w", err)
+		return err
 	}
-	_ = rawConn.SetReadDeadline(time.Time{})
 
 	s.mu.Lock()
 	s.conn = fc
 	s.mu.Unlock()
 
-	if firstFrame.Channel == protocol.ChannelCTRL {
-		var env struct {
-			Type  string `json:"type"`
-			Token string `json:"token"`
-		}
-		if json.Unmarshal(firstFrame.Payload, &env) == nil && env.Type == "auth" {
-			if env.Token != token {
-				return errors.New("media-core invalid IPC token")
+	hbDone := make(chan struct{})
+	defer close(hbDone)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hbDone:
+				return
+			case <-ticker.C:
+				if s.ActiveSessionCount() > 0 {
+					if err := fc.WriteCTRL(map[string]any{"type": "ping"}); err != nil {
+						return
+					}
+				}
 			}
-		} else {
-			s.forwardFromMedia(firstFrame)
 		}
-	} else {
-		s.forwardFromMedia(firstFrame)
-	}
+	}()
 
 	// Read loop forwarding VIDEO, AUDIO, and CTRL frames to the active remote client
 	for {
@@ -191,6 +254,46 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 		}
 		s.forwardFromMedia(frame)
 	}
+}
+
+// acceptAndAuth accepts a single local IPC connection, closes the listener immediately,
+// and enforces strict first-frame CTRL auth with constant-time token verification.
+func acceptAndAuth(ln net.Listener, expectedToken string) (*protocol.FrameConn, error) {
+	if tcpLn, ok := ln.(*net.TCPListener); ok {
+		_ = tcpLn.SetDeadline(time.Now().Add(10 * time.Second))
+	}
+	rawConn, err := ln.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("accept media-core: %w", err)
+	}
+	_ = ln.Close()
+
+	fc := protocol.NewFrameConn(rawConn)
+	_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	firstFrame, err := fc.ReadFrame()
+	if err != nil {
+		_ = rawConn.Close()
+		return nil, fmt.Errorf("read initial frame: %w", err)
+	}
+	_ = rawConn.SetReadDeadline(time.Time{})
+
+	if firstFrame.Channel != protocol.ChannelCTRL {
+		_ = rawConn.Close()
+		return nil, errors.New("media-core first frame must be CTRL auth")
+	}
+	var env struct {
+		Type  string `json:"type"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(firstFrame.Payload, &env); err != nil || env.Type != "auth" {
+		_ = rawConn.Close()
+		return nil, errors.New("media-core first frame must be auth")
+	}
+	if subtle.ConstantTimeCompare([]byte(env.Token), []byte(expectedToken)) != 1 {
+		_ = rawConn.Close()
+		return nil, errors.New("media-core invalid IPC token")
+	}
+	return fc, nil
 }
 
 func (s *Supervisor) forwardFromMedia(frame protocol.Frame) {

@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/xiaobaodesk/win-host/internal/config"
+	"github.com/xiaobaodesk/win-host/internal/displayguard"
 	"github.com/xiaobaodesk/win-host/internal/hubclient"
 	"github.com/xiaobaodesk/win-host/internal/ipc"
 	"github.com/xiaobaodesk/win-host/internal/p2p"
@@ -58,6 +59,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config (%s): %v (run with --init-config first)", *cfgPath, err)
 	}
+	displayguard.EnsureNoVirtualDisplayAttached()
 	if *hubOverride != "" {
 		cfg.HubAddr = *hubOverride
 	}
@@ -69,6 +71,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("tls cert error: %v", err)
 	}
+	_ = config.RestrictFilePermissions(cfg.KeyPath)
 	if *printFP {
 		fmt.Println(fp)
 		return

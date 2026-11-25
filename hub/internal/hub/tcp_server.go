@@ -16,12 +16,92 @@ import (
 	"xiaobaodesk/hub/internal/proto"
 )
 
+const (
+	handshakeTimeout  = 10 * time.Second
+	maxAuthFailures   = 5
+	authFailWindow    = 5 * time.Minute
+	authBlockDuration = 5 * time.Minute
+)
+
+type authFailRecord struct {
+	failures     int
+	firstFailure time.Time
+	blockedUntil time.Time
+}
+
+type authRateLimiter struct {
+	mu      sync.Mutex
+	records map[string]*authFailRecord
+}
+
+func newAuthRateLimiter() *authRateLimiter {
+	return &authRateLimiter{
+		records: make(map[string]*authFailRecord),
+	}
+}
+
+func (l *authRateLimiter) isBlocked(ip string, now time.Time) bool {
+	if ip == "" {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	rec, ok := l.records[ip]
+	if !ok {
+		return false
+	}
+	if !rec.blockedUntil.IsZero() && now.Before(rec.blockedUntil) {
+		return true
+	}
+	if !rec.blockedUntil.IsZero() && !now.Before(rec.blockedUntil) {
+		delete(l.records, ip)
+	}
+	return false
+}
+
+func (l *authRateLimiter) recordFailure(ip string, now time.Time) bool {
+	if ip == "" {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	rec, ok := l.records[ip]
+	if !ok {
+		rec = &authFailRecord{firstFailure: now}
+		l.records[ip] = rec
+	} else if !rec.blockedUntil.IsZero() && now.Before(rec.blockedUntil) {
+		return true
+	} else if now.Sub(rec.firstFailure) > authFailWindow {
+		rec.failures = 0
+		rec.firstFailure = now
+		rec.blockedUntil = time.Time{}
+	}
+
+	rec.failures++
+	if rec.failures >= maxAuthFailures {
+		rec.blockedUntil = now.Add(authBlockDuration)
+		return true
+	}
+	return false
+}
+
+func (l *authRateLimiter) reset(ip string) {
+	if ip == "" {
+		return
+	}
+	l.mu.Lock()
+	delete(l.records, ip)
+	l.mu.Unlock()
+}
+
 // Server hosts the TCP TLS 1.3 control/relay server and UDP reflection server.
 type Server struct {
-	Cfg      *config.Config
-	TLS      *tls.Config
-	Registry *Registry
-	Logger   *log.Logger
+	Cfg         *config.Config
+	TLS         *tls.Config
+	Registry    *Registry
+	Logger      *log.Logger
+	authLimiter *authRateLimiter
+	limiterOnce sync.Once
 }
 
 // NewServer constructs a hub Server.
@@ -30,11 +110,21 @@ func NewServer(cfg *config.Config, tlsCfg *tls.Config, logger *log.Logger) *Serv
 		logger = log.Default()
 	}
 	return &Server{
-		Cfg:      cfg,
-		TLS:      tlsCfg,
-		Registry: NewRegistry(time.Duration(cfg.PeerTTLSeconds) * time.Second),
-		Logger:   logger,
+		Cfg:         cfg,
+		TLS:         tlsCfg,
+		Registry:    NewRegistry(time.Duration(cfg.PeerTTLSeconds) * time.Second),
+		Logger:      logger,
+		authLimiter: newAuthRateLimiter(),
 	}
+}
+
+func (s *Server) limiter() *authRateLimiter {
+	s.limiterOnce.Do(func() {
+		if s.authLimiter == nil {
+			s.authLimiter = newAuthRateLimiter()
+		}
+	})
+	return s.authLimiter
 }
 
 // ServeTCP accepts TLS 1.3 connections on ln until ctx is cancelled.
@@ -71,12 +161,27 @@ type ctrlEnvelope struct {
 	TS           int64    `json:"ts,omitempty"`
 }
 
+func extractRemoteIP(remote string) string {
+	ip, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return remote
+	}
+	return ip
+}
+
 func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn) {
 	remote := conn.RemoteAddr().String()
+	remoteIP := extractRemoteIP(remote)
 	defer conn.Close()
 
-	// Complete TLS handshake explicitly within auth deadline
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	lim := s.limiter()
+	if lim.isBlocked(remoteIP, time.Now()) {
+		s.Logger.Printf("blocked connection from rate-limited IP %s", remoteIP)
+		return
+	}
+
+	// Complete TLS handshake and auth explicitly within 10s deadline.
+	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	if tc, ok := conn.(*tls.Conn); ok {
 		if err := tc.HandshakeContext(ctx); err != nil {
 			s.Logger.Printf("tls handshake failed from %s: %v", remote, err)
@@ -108,6 +213,7 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn) {
 			continue
 		}
 		if msg.Type != "auth" {
+			lim.recordFailure(remoteIP, time.Now())
 			_ = proto.WriteCtrl(conn, map[string]any{
 				"type":   "auth_err",
 				"reason": "expected auth",
@@ -115,6 +221,8 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 		if !auth.IsDeviceAllowed(msg.DeviceID, s.Cfg.AllowedDeviceIDs) {
+			blocked := lim.recordFailure(remoteIP, time.Now())
+			s.Logger.Printf("auth failed (disallowed device) from %s (blocked=%v)", remoteIP, blocked)
 			_ = proto.WriteCtrl(conn, map[string]any{
 				"type":   "auth_err",
 				"reason": "device_id not allowed",
@@ -122,12 +230,15 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 		if !auth.VerifyHMAC(nonce, s.Cfg.AuthSecret, msg.HMAC) {
+			blocked := lim.recordFailure(remoteIP, time.Now())
+			s.Logger.Printf("auth failed (invalid hmac) from %s (blocked=%v)", remoteIP, blocked)
 			_ = proto.WriteCtrl(conn, map[string]any{
 				"type":   "auth_err",
 				"reason": "invalid hmac",
 			})
 			return
 		}
+		lim.reset(remoteIP)
 		authedDeviceID = msg.DeviceID
 		authedRole = msg.Role
 		if authedRole == "" {
@@ -164,7 +275,7 @@ func (s *Server) handleTCPConn(ctx context.Context, conn net.Conn) {
 		if ctx.Err() != nil {
 			return
 		}
-		frame, err := proto.ReadFrame(conn, proto.DefaultMaxSize)
+		frame, err := proto.ReadFrame(conn, proto.MaxCtrlSize)
 		if err != nil {
 			return
 		}

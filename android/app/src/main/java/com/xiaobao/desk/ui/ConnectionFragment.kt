@@ -236,22 +236,21 @@ class ConnectionFragment : Fragment() {
             return
         }
         try {
-            val jsonText = when {
+            val profile = when {
                 raw.contains("xiaobaodesk://import") -> {
                     val idx = raw.indexOf("data=")
                     require(idx >= 0) { "缺少 data 参数" }
                     val tail = raw.substring(idx + 5).takeWhile { !it.isWhitespace() && it != '&' && it != '#' }
-                    String(Base64.decode(tail, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
+                    ConnectionProfile.fromImportDataParam(tail)
                 }
-                raw.startsWith("{") -> raw
-                else -> String(Base64.decode(raw, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
+                raw.startsWith("{") -> ConnectionProfile.parseAndValidateImportJson(raw)
+                else -> ConnectionProfile.fromImportDataParam(raw)
             }
-            val profile = ConnectionProfile.fromJson(JSONObject(jsonText))
             profileStore.upsert(profile)
             applyProfile(profile)
             Toast.makeText(requireContext(), "已成功导入电脑配置：${profile.name}，点击下方按钮即可连接", Toast.LENGTH_LONG).show()
-        } catch (_: Exception) {
-            Toast.makeText(requireContext(), "未识别到有效的配对码，请复制完整的 xiaobaodesk://import?data=... 配对码", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "配对码校验失败: ${e.message ?: "请复制完整的 xiaobaodesk://import?data=... 配对码"}", Toast.LENGTH_LONG).show()
         }
     }
 

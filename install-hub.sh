@@ -41,6 +41,11 @@ if [ -n "${XB_HUB_DNS_NAME:-}" ]; then
 else
   "$BIN_PATH" --init-config --config "$CONF_FILE" >/dev/null
 fi
+chmod 700 "$CONF_DIR"
+chmod 600 "$CONF_FILE"
+if [ -f "$CONF_DIR/hub-key.pem" ]; then
+  chmod 600 "$CONF_DIR/hub-key.pem"
+fi
 
 echo "[3/4] 配置防火墙端口 (TCP/UDP 21116) 与 systemd 服务..."
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
@@ -63,6 +68,10 @@ Type=simple
 ExecStart=$BIN_PATH --config $CONF_FILE
 Restart=always
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$CONF_DIR
 
 [Install]
 WantedBy=multi-user.target

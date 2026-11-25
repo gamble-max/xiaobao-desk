@@ -21,6 +21,7 @@ public:
     bool CaptureOriginalMode();
     bool SetSuperScreen(uint32_t width, uint32_t height, uint32_t hz, bool enable, std::string& err);
     bool RestoreOriginalMode();
+    static void ForceDetachVirtualDisplaysAndRescueWindows();
     void MigrateWindowsToSecondary();
     void RestoreMigratedWindows();
 

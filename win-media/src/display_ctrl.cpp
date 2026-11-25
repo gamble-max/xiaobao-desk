@@ -176,22 +176,19 @@ bool DisplayCtrl::SetSuperScreen(uint32_t width, uint32_t height, uint32_t hz, b
                 dm.dmDisplayFrequency = (hz >= 30) ? hz : 60;
                 dm.dmBitsPerPel = 32;
                 dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL;
-                LONG r1 = ChangeDisplaySettingsExW(vdev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
+                LONG r1 = ChangeDisplaySettingsExW(vdev.c_str(), &dm, nullptr, 0, nullptr);
                 if (r1 != DISP_CHANGE_SUCCESSFUL) {
                     dm.dmPelsWidth = 1920;
                     dm.dmPelsHeight = 1080;
                     dm.dmDisplayFrequency = 60;
-                    r1 = ChangeDisplaySettingsExW(vdev.c_str(), &dm, nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
+                    r1 = ChangeDisplaySettingsExW(vdev.c_str(), &dm, nullptr, 0, nullptr);
                 }
                 if (r1 == DISP_CHANGE_SUCCESSFUL) {
-                    LONG r2 = ChangeDisplaySettingsExW(nullptr, nullptr, nullptr, 0, nullptr);
-                    if (r2 == DISP_CHANGE_SUCCESSFUL) {
-                        Sleep(350);
-                        attached_virtual_ = true;
-                        topology_extended_ = true;
-                        is_phys_primary = false;
-                        devName = vdev;
-                    }
+                    Sleep(350);
+                    attached_virtual_ = true;
+                    topology_extended_ = true;
+                    is_phys_primary = false;
+                    devName = vdev;
                 }
             }
         }
@@ -319,6 +316,7 @@ bool DisplayCtrl::RestoreOriginalMode() {
         }
     }
     has_secondary_ = false;
+    ForceDetachVirtualDisplaysAndRescueWindows();
     return ok;
 }
 
@@ -499,6 +497,77 @@ void DisplayCtrl::RestoreMigratedWindows() {
         }
     }
     migrated_windows_.clear();
+}
+
+void DisplayCtrl::ForceDetachVirtualDisplaysAndRescueWindows() {
+    ClipCursor(nullptr);
+
+    bool detached_any = false;
+    DISPLAY_DEVICEW dd{};
+    dd.cb = sizeof(dd);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); ++i) {
+        if ((dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) &&
+            !(dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE)) {
+            std::wstring devStr(dd.DeviceString);
+            if (contains_icase(devStr, L"virtual display driver") ||
+                contains_icase(devStr, L"mttvdd")) {
+                DEVMODEW dm{};
+                dm.dmSize = sizeof(dm);
+                dm.dmPelsWidth = 0;
+                dm.dmPelsHeight = 0;
+                dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT;
+                ChangeDisplaySettingsExW(dd.DeviceName, &dm, nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
+                detached_any = true;
+            }
+        }
+        ZeroMemory(&dd, sizeof(dd));
+        dd.cb = sizeof(dd);
+    }
+    if (detached_any) {
+        ChangeDisplaySettingsExW(nullptr, nullptr, nullptr, 0, nullptr);
+    }
+    SetDisplayConfig(0, nullptr, 0, nullptr, SDC_TOPOLOGY_INTERNAL | SDC_APPLY);
+
+    HMONITOR hpri = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    RECT pri{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    if (GetMonitorInfoW(hpri, &mi)) {
+        pri = mi.rcMonitor;
+    }
+
+    struct RescueCtx {
+        RECT pri;
+    } rctx{pri};
+
+    EnumWindows([](HWND hwnd, LPARAM lp) -> BOOL {
+        const auto* ctx = reinterpret_cast<const RescueCtx*>(lp);
+        if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return TRUE;
+        LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        if (style & WS_CHILD) return TRUE;
+        DWORD cloaked = 0;
+        if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0) {
+            return TRUE;
+        }
+        wchar_t cls[128]{};
+        if (GetClassNameW(hwnd, cls, 128) > 0 && is_shell_or_ignored_class(cls)) {
+            return TRUE;
+        }
+        RECT wr{};
+        if (!GetWindowRect(hwnd, &wr)) return TRUE;
+        if (wr.right <= wr.left || wr.bottom <= wr.top) return TRUE;
+        LONG cx = (wr.left + wr.right) / 2;
+        LONG cy = (wr.top + wr.bottom) / 2;
+        if (cx < ctx->pri.left || cx >= ctx->pri.right ||
+            cy < ctx->pri.top || cy >= ctx->pri.bottom) {
+            if (IsZoomed(hwnd)) {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            SetWindowPos(hwnd, nullptr, ctx->pri.left + 100, ctx->pri.top + 80,
+                         0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&rctx));
 }
 
 } // namespace xb
